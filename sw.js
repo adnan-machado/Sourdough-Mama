@@ -23,6 +23,35 @@ self.addEventListener('fetch', (event) => {
     );
 });
 
+let timerTimeout = null;
+
+self.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'START_TIMER') {
+        const { endTime, message } = event.data;
+        const delay = endTime - Date.now();
+
+        if (timerTimeout) clearTimeout(timerTimeout);
+
+        if (delay > 0) {
+            // event.waitUntil keeps the service worker alive for the duration of the promise
+            event.waitUntil(
+                new Promise((resolve) => {
+                    timerTimeout = setTimeout(async () => {
+                        await self.registration.showNotification('Sourdough Master', {
+                            body: message,
+                            icon: 'favicon.ico',
+                            tag: 'sourdough-progress',
+                            renotify: false,
+                            vibrate: [200, 100, 200]
+                        });
+                        resolve();
+                    }, delay);
+                })
+            );
+        }
+    }
+});
+
 self.addEventListener('notificationclick', (event) => {
     event.notification.close();
     
