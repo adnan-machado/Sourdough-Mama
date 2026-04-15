@@ -211,6 +211,15 @@ function startTimer(seconds) {
     localStorage.setItem('sourdough_timer_end', timerEnd);
     console.log("Timer started for", seconds, "seconds. Ends at", timerEnd);
     
+    // Send message to Service Worker for background notification
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({
+            type: 'START_TIMER',
+            endTime: timerEnd,
+            message: "Timer finished! Time for the next step."
+        });
+    }
+
     runTimer();
 }
 
@@ -245,7 +254,8 @@ function runTimer() {
     
     const update = () => {
         const now = Date.now();
-        const remaining = Math.max(0, Math.floor((timerEnd - now) / 1000));
+        // Use Math.ceil to prevent the "jump" to N-1 immediately
+        const remaining = Math.max(0, Math.ceil((timerEnd - now) / 1000));
         
         const m = Math.floor(remaining / 60).toString().padStart(2, '0');
         const s = (remaining % 60).toString().padStart(2, '0');
@@ -257,7 +267,7 @@ function runTimer() {
         }
     };
 
-    update(); // Update immediately to prevent "00:00" jump
+    update(); 
     timerInterval = setInterval(update, 1000);
 }
 
@@ -377,3 +387,4 @@ function notify(msg) {
 }
 
 init();
+
