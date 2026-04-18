@@ -1,25 +1,85 @@
-const CACHE_NAME = 'sourdough-v1';
+const CACHE_NAME = 'sourdough-v2'; // Bumped version to clear old cache
 const ASSETS = [
+    './',
     'index.html',
     'style.css',
     'app.js',
-    'manifest.json'
+    'manifest.json',
+    'eyes_open.png',
+    'eyes_star.png',
+    'temperature.png',
+    'dutch.png',
+    'knife.png',
+    'boule.png',
+    'start_screen.png',
+    'celebration.gif',
+    'favicon.ico'
 ];
 
 self.addEventListener('install', (event) => {
     self.skipWaiting();
     event.waitUntil(
-        caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
+        caches.open(CACHE_NAME).then((cache) => {
+            console.log('Caching assets');
+            // Using a non-blocking catch to ensure sw installs even if an image is missing
+            return Promise.allSettled(
+                ASSETS.map(asset => cache.add(asset))
+            );
+        })
     );
 });
 
 self.addEventListener('activate', (event) => {
-    event.waitUntil(clients.claim());
+    event.waitUntil(
+        Promise.all([
+            // Clear old caches
+            caches.keys().then((cacheNames) => {
+                return Promise.all(
+                    cacheNames.map((cacheName) => {
+                        if (cacheName !== CACHE_NAME) {
+                            console.log('Deleting old cache:', cacheName);
+                            return caches.delete(cacheName);
+                        }
+                    })
+                );
+            }),
+            clients.claim()
+        ])
+    );
 });
 
+// Smarter fetch strategy
 self.addEventListener('fetch', (event) => {
+    const url = new URL(event.request.url);
+    
+    // For navigation requests (opening the app), try network first
+    if (event.request.mode === 'navigate') {
+        event.respondWith(
+            fetch(event.request).catch(() => {
+                return caches.match('index.html');
+            })
+        );
+        return;
+    }
+
+    // For static assets, use Stale-While-Revalidate
     event.respondWith(
-        caches.match(event.request).then((response) => response || fetch(event.request))
+        caches.match(event.request).then((cachedResponse) => {
+            const fetchPromise = fetch(event.request).then((networkResponse) => {
+                // If the response is valid, update the cache
+                if (networkResponse && networkResponse.status === 200) {
+                    const cacheCopy = networkResponse.clone();
+                    caches.open(CACHE_NAME).then((cache) => {
+                        cache.put(event.request, cacheCopy);
+                    });
+                }
+                return networkResponse;
+            }).catch(() => {
+                // Return cached if network fails
+            });
+
+            return cachedResponse || fetchPromise;
+        })
     );
 });
 
