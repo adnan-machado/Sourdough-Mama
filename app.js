@@ -11,7 +11,7 @@ const STATES = {
         text: "Preheating... (30 min)",
         buttonImg: "temperature.png",
         timerSeconds: 10, // Reduced for testing as per user edits
-        characterImg: "eyes_star.png",
+        characterImg: "eyes_stars.png",
         nextState: 'ACTION_2',
         isWait: true
     },
@@ -27,7 +27,7 @@ const STATES = {
         text: "Great, now we wait a bit before scoring the ears",
         buttonImg: "dutch.png",
         timerSeconds: 20,
-        characterImg: "eyes_star.png",
+        characterImg: "eyes_stars.png",
         nextState: 'ACTION_3',
         isWait: true
     },
@@ -43,7 +43,7 @@ const STATES = {
         text: "Baking with lid on... (13 min)",
         buttonImg: "knife.png",
         timerSeconds: 13,
-        characterImg: "eyes_star.png",
+        characterImg: "eyes_stars.png",
         nextState: 'ACTION_4',
         isWait: true
     },
@@ -59,7 +59,7 @@ const STATES = {
         text: "Open baking... (20 min)",
         buttonImg: "boule.png",
         timerSeconds: 20,
-        characterImg: "eyes_star.png",
+        characterImg: "eyes_stars.png",
         nextState: 'ACTION_5',
         isWait: true
     },
