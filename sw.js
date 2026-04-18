@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sourdough-v4';
+const CACHE_NAME = 'sourdough-v5'; // Bumped to force reinstall
 
 const ASSETS = [
     './',
@@ -54,11 +54,12 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-    // For navigation requests, try network first then fall back to cached index
+    // For navigation requests, try network first then fall back to cached index.
+    // Uses scope-relative path so it works on GitHub Pages subfolders.
     if (event.request.mode === 'navigate') {
         event.respondWith(
             fetch(event.request).catch(() => {
-                return caches.match('./index.html');
+                return caches.match(self.registration.scope + 'index.html');
             })
         );
         return;
@@ -91,14 +92,20 @@ self.addEventListener('fetch', (event) => {
 // Notification-only handler.
 // The main page (app.js) owns the timer via setTimeout + localStorage.
 // It posts NOTIFY here when the timer fires.
-// CANCEL_TIMER is accepted as a no-op so app.js can call it safely on restart.
+// CANCEL_TIMER is a no-op so app.js can call it safely on restart.
 // ---------------------------------------------------------------------------
 
 self.addEventListener('message', (event) => {
     const { type, message } = event.data || {};
 
-    // Page timer fired — just show the notification
     if (type === 'NOTIFY') {
+        // Guard against the permission error — SW can't show notifications
+        // unless the user already granted permission in the page.
+        if (self.Notification && self.Notification.permission !== 'granted') {
+            console.warn('[SW] Notification permission not granted, skipping.');
+            return;
+        }
+
         event.waitUntil(
             self.registration.showNotification('Sourdough Master', {
                 body: message || "Timer finished! Time for the next step.",
@@ -111,7 +118,6 @@ self.addEventListener('message', (event) => {
     }
 
     if (type === 'CANCEL_TIMER') {
-        // No-op: timers now live entirely in the page, nothing to cancel SW-side
         console.log('[SW] CANCEL_TIMER received');
     }
 });
