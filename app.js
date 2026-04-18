@@ -10,8 +10,8 @@ const STATES = {
         title: 'WAITING...',
         text: "Preheating... (30 min)",
         buttonImg: "temperature.png",
-        timerSeconds: 10, // Reduced for testing
-        characterImg: "eyes_star.png", // Fixed: was eyes_stars.png (typo)
+        timerSeconds: 10, // Reduced for testing as per user edits
+        characterImg: "eyes_star.png",
         nextState: 'ACTION_2',
         isWait: true
     },
@@ -27,7 +27,7 @@ const STATES = {
         text: "Great, now we wait a bit before scoring the ears",
         buttonImg: "dutch.png",
         timerSeconds: 20,
-        characterImg: "eyes_star.png", // Fixed: was eyes_stars.png (typo)
+        characterImg: "eyes_star.png",
         nextState: 'ACTION_3',
         isWait: true
     },
@@ -43,7 +43,7 @@ const STATES = {
         text: "Baking with lid on... (13 min)",
         buttonImg: "knife.png",
         timerSeconds: 13,
-        characterImg: "eyes_star.png", // Fixed: was eyes_stars.png (typo)
+        characterImg: "eyes_star.png",
         nextState: 'ACTION_4',
         isWait: true
     },
@@ -59,7 +59,7 @@ const STATES = {
         text: "Open baking... (20 min)",
         buttonImg: "boule.png",
         timerSeconds: 20,
-        characterImg: "eyes_star.png", // Fixed: was eyes_stars.png (typo)
+        characterImg: "eyes_star.png",
         nextState: 'ACTION_5',
         isWait: true
     },
@@ -73,9 +73,9 @@ const STATES = {
 };
 
 let currentState = 'START';
+let timeLeft = null;
 let timerEnd = null;
 let timerInterval = null;
-let timerTimeout = null; // Tier 2: page-owned background timeout for SW notification
 let typewriterInterval = null;
 let typewriterSessionId = 0;
 
@@ -98,20 +98,19 @@ const timerSound = document.getElementById('timer-sound');
 const celebrationSound = document.getElementById('celebration-sound');
 const clickSound = document.getElementById('click-sound');
 
-// ---------------------------------------------------------------------------
 // Initialization
-// ---------------------------------------------------------------------------
-
 function init() {
     const savedState = localStorage.getItem('sourdough_game_state');
     if (savedState && savedState !== 'START') {
         currentState = savedState;
         showScreen('game-screen');
+        // resumeTimer will handle updateUI
         resumeTimer();
     } else {
         showScreen('start-screen');
     }
 
+    // Event Listeners
     document.getElementById('start-screen').addEventListener('click', startBake);
     document.getElementById('restart-btn').addEventListener('click', () => {
         playSound(clickSound);
@@ -124,6 +123,7 @@ function init() {
     });
     actionBtn.addEventListener('click', handleAction);
 
+    // Register Service Worker
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('sw.js').then(registration => {
             registration.onupdatefound = () => {
@@ -132,8 +132,11 @@ function init() {
                     installingWorker.onstatechange = () => {
                         if (installingWorker.state === 'installed') {
                             if (navigator.serviceWorker.controller) {
+                                // New content is available; please refresh.
                                 console.log('New content is available; please refresh.');
+                                // Pre-emptively update cache to avoid the "eyes_start.png" stale issue
                             } else {
+                                // Content is cached for offline use.
                                 console.log('Content is cached for offline use.');
                             }
                         }
@@ -149,11 +152,8 @@ function showScreen(id) {
     document.getElementById(id).classList.add('active');
 }
 
-// ---------------------------------------------------------------------------
-// Game flow
-// ---------------------------------------------------------------------------
-
 function startBake() {
+    // Unlock audio for iOS
     [timerSound, celebrationSound, clickSound].forEach(s => {
         s.play().then(() => { s.pause(); s.currentTime = 0; }).catch(() => {});
     });
@@ -180,7 +180,8 @@ function updateUI() {
     stateTitle.textContent = config.title;
     characterImg.src = config.characterImg;
     actionIcon.src = config.buttonImg;
-
+    
+    // Fallback for missing images
     characterImg.onerror = () => characterImg.src = `https://api.dicebear.com/7.x/pixel-art/svg?seed=${currentState}`;
     actionIcon.onerror = () => actionIcon.src = `https://picsum.photos/seed/${currentState}/200/200`;
 
@@ -222,49 +223,42 @@ function transitionTo(next) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Timer — Tier 2 + Tier 3
-//
-// Tier 2: The PAGE owns the setTimeout. When it fires, it posts NOTIFY to
-//         the SW which shows the notification. This is more reliable than
-//         a SW-owned setTimeout because the page's JS isn't subject to
-//         the SW lifetime limits.
-//
-// Tier 3: endTime is persisted in localStorage. On refresh/reopen,
-//         resumeTimer() reads it and either continues the countdown or
-//         fires immediately if the timer already expired.
-// ---------------------------------------------------------------------------
-
 function startTimer(seconds) {
-    clearPageTimer(); // Clear any existing background timeout
-
     const now = Date.now();
     timerEnd = now + (seconds * 1000);
     localStorage.setItem('sourdough_timer_end', timerEnd);
     console.log("Timer started for", seconds, "seconds. Ends at", timerEnd);
+    
+    // Send message to Service Worker for background notification
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({
+            type: 'START_TIMER',
+            endTime: timerEnd,
+            message: "Timer finished! Time for the next step."
+        });
+    }
 
-    schedulePageTimer(timerEnd);
     runTimer();
 }
 
 function resumeTimer() {
     const savedEnd = localStorage.getItem('sourdough_timer_end');
     const config = STATES[currentState];
-
+    
     if (savedEnd && config && config.isWait) {
         timerEnd = parseInt(savedEnd, 10);
         const now = Date.now();
-        console.log("Resuming timer. Now:", now, "End:", timerEnd);
-
+        console.log("Resuming timer. Current time:", now, "End time:", timerEnd);
+        
         if (timerEnd > now) {
-            updateUI();
-            schedulePageTimer(timerEnd); // Re-arm the background timeout after refresh
+            updateUI(); // Ensure UI is updated for the resumed state
             runTimer();
         } else {
             console.log("Saved timer already expired, completing now.");
             handleTimerComplete();
         }
     } else {
+        // If we are not in a wait state, clear any lingering timer data
         localStorage.removeItem('sourdough_timer_end');
         timerEnd = null;
         if (timerInterval) clearInterval(timerInterval);
@@ -273,46 +267,14 @@ function resumeTimer() {
     }
 }
 
-// Schedules a page-side setTimeout that posts NOTIFY to the SW when it fires.
-// This is the Tier 2 improvement: timing lives in the page, SW just notifies.
-function schedulePageTimer(endTime) {
-    clearPageTimer();
-
-    const delay = endTime - Date.now();
-    if (delay <= 0) return;
-
-    timerTimeout = setTimeout(() => {
-        postToSW({
-            type: 'NOTIFY',
-            message: "Timer finished! Time for the next step."
-        });
-    }, delay);
-}
-
-function clearPageTimer() {
-    if (timerTimeout) {
-        clearTimeout(timerTimeout);
-        timerTimeout = null;
-    }
-}
-
-// Posts a message to the SW controller, waiting for it to be ready if needed
-function postToSW(message) {
-    if (!('serviceWorker' in navigator)) return;
-    navigator.serviceWorker.ready.then(reg => {
-        if (reg.active) {
-            reg.active.postMessage(message);
-        }
-    }).catch(err => console.warn('[SW] postMessage failed:', err));
-}
-
 function runTimer() {
     if (timerInterval) clearInterval(timerInterval);
-
+    
     const update = () => {
         const now = Date.now();
+        // Use Math.ceil to prevent the "jump" to N-1 immediately
         const remaining = Math.max(0, Math.ceil((timerEnd - now) / 1000));
-
+        
         const m = Math.floor(remaining / 60).toString().padStart(2, '0');
         const s = (remaining % 60).toString().padStart(2, '0');
         timerDisplay.textContent = `${m}:${s}`;
@@ -323,36 +285,42 @@ function runTimer() {
         }
     };
 
-    update();
+    update(); 
     timerInterval = setInterval(update, 1000);
 }
 
 function handleTimerComplete() {
+    // Clear the timer end so it doesn't trigger again on refresh
     localStorage.removeItem('sourdough_timer_end');
     timerEnd = null;
-    clearPageTimer(); // Ensure background timeout is cleared too
 
-    try { playSound(timerSound); } catch (e) { console.warn("Sound play failed", e); }
-    try { notify("Timer finished! Time for the next step."); } catch (e) { console.warn("Notification failed", e); }
+    // Attempt to play sound and notify, but don't let them block the transition
+    try {
+        playSound(timerSound);
+    } catch (e) {
+        console.warn("Sound play failed", e);
+    }
 
+    try {
+        notify("Timer finished! Time for the next step.");
+    } catch (e) {
+        console.warn("Notification failed", e);
+    }
+    
     const config = STATES[currentState];
     if (config && config.isWait) {
         console.log("Timer complete, transitioning from", currentState, "to", config.nextState);
         transitionTo(config.nextState);
     } else {
         console.log("Timer complete but current state is not a wait state:", currentState);
-        updateUI();
+        updateUI(); // Ensure UI is fresh
     }
 }
-
-// ---------------------------------------------------------------------------
-// Celebration + Restart
-// ---------------------------------------------------------------------------
 
 function startCelebration() {
     showScreen('celebration-screen');
     playSound(celebrationSound);
-
+    
     let loops = 0;
     celebrationSound.onended = () => {
         loops++;
@@ -363,6 +331,7 @@ function startCelebration() {
         }
     };
 
+    // Fallback if audio fails
     setTimeout(() => {
         if (currentState === 'CELEBRATION') restartGame();
     }, 15000);
@@ -374,36 +343,36 @@ function restartGame() {
     localStorage.removeItem('sourdough_timer_end');
     if (timerInterval) clearInterval(timerInterval);
     if (typewriterInterval) clearInterval(typewriterInterval);
-    clearPageTimer();
-
-    // Tell SW to cancel anything pending (no-op currently, future-proofing)
-    postToSW({ type: 'CANCEL_TIMER' });
-
+    
     currentState = 'START';
     restartModal.classList.add('hidden');
     showScreen('start-screen');
 }
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
-
 function typewriter(element, text) {
     const sessionId = ++typewriterSessionId;
     if (typewriterInterval) clearInterval(typewriterInterval);
-
+    
     element.textContent = '';
     let i = 0;
-
+    
     typewriterInterval = setInterval(() => {
-        if (sessionId !== typewriterSessionId) return;
+        // If a new session started, stop this one immediately
+        if (sessionId !== typewriterSessionId) {
+            return; 
+        }
 
-        if (text[i]) element.textContent += text[i];
+        if (text[i]) {
+            element.textContent += text[i];
+        }
         i++;
-
+        
         if (i >= text.length) {
             clearInterval(typewriterInterval);
-            if (sessionId === typewriterSessionId) typewriterInterval = null;
+            if (sessionId === typewriterSessionId) {
+                typewriterInterval = null;
+            }
         }
     }, 30);
 }
@@ -420,8 +389,8 @@ function notify(msg) {
     const options = {
         body: msg,
         icon: "favicon.ico",
-        tag: "sourdough-progress",
-        renotify: true, // Fixed: was false, which silently replaced notifications
+        tag: "sourdough-progress", // Consistent tag prevents stacking
+        renotify: false, // Prevents repeated vibration/sound for the same tag
         vibrate: [200, 100, 200]
     };
 
@@ -430,6 +399,7 @@ function notify(msg) {
             reg.showNotification(title, options);
         });
     } else {
+        // Fallback for non-SW environments
         new Notification(title, options);
     }
 }

@@ -1,5 +1,4 @@
-const CACHE_NAME = 'sourdough-v5'; // Bumped to force reinstall
-
+const CACHE_NAME = 'sourdough-v2'; // Bumped version to clear old cache
 const ASSETS = [
     './',
     'index.html',
@@ -22,15 +21,10 @@ self.addEventListener('install', (event) => {
     event.waitUntil(
         caches.open(CACHE_NAME).then((cache) => {
             console.log('Caching assets');
+            // Using a non-blocking catch to ensure sw installs even if an image is missing
             return Promise.allSettled(
                 ASSETS.map(asset => cache.add(asset))
-            ).then((results) => {
-                results.forEach((r, i) => {
-                    if (r.status === 'rejected') {
-                        console.warn('Failed to cache:', ASSETS[i]);
-                    }
-                });
-            });
+            );
         })
     );
 });
@@ -38,6 +32,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
     event.waitUntil(
         Promise.all([
+            // Clear old caches
             caches.keys().then((cacheNames) => {
                 return Promise.all(
                     cacheNames.map((cacheName) => {
@@ -53,13 +48,15 @@ self.addEventListener('activate', (event) => {
     );
 });
 
+// Smarter fetch strategy
 self.addEventListener('fetch', (event) => {
-    // For navigation requests, try network first then fall back to cached index.
-    // Uses scope-relative path so it works on GitHub Pages subfolders.
+    const url = new URL(event.request.url);
+    
+    // For navigation requests (opening the app), try network first
     if (event.request.mode === 'navigate') {
         event.respondWith(
             fetch(event.request).catch(() => {
-                return caches.match(self.registration.scope + 'index.html');
+                return caches.match('index.html');
             })
         );
         return;
@@ -69,6 +66,7 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
         caches.match(event.request).then((cachedResponse) => {
             const fetchPromise = fetch(event.request).then((networkResponse) => {
+                // If the response is valid, update the cache
                 if (networkResponse && networkResponse.status === 200) {
                     const cacheCopy = networkResponse.clone();
                     caches.open(CACHE_NAME).then((cache) => {
@@ -77,10 +75,7 @@ self.addEventListener('fetch', (event) => {
                 }
                 return networkResponse;
             }).catch(() => {
-                return cachedResponse || new Response('Offline - resource not available', {
-                    status: 503,
-                    statusText: 'Service Unavailable'
-                });
+                // Return cached if network fails
             });
 
             return cachedResponse || fetchPromise;
@@ -88,50 +83,47 @@ self.addEventListener('fetch', (event) => {
     );
 });
 
-// ---------------------------------------------------------------------------
-// Notification-only handler.
-// The main page (app.js) owns the timer via setTimeout + localStorage.
-// It posts NOTIFY here when the timer fires.
-// CANCEL_TIMER is a no-op so app.js can call it safely on restart.
-// ---------------------------------------------------------------------------
+let timerTimeout = null;
 
 self.addEventListener('message', (event) => {
-    const { type, message } = event.data || {};
+    if (event.data && event.data.type === 'START_TIMER') {
+        const { endTime, message } = event.data;
+        const delay = endTime - Date.now();
 
-    if (type === 'NOTIFY') {
-        // Guard against the permission error — SW can't show notifications
-        // unless the user already granted permission in the page.
-        if (self.Notification && self.Notification.permission !== 'granted') {
-            console.warn('[SW] Notification permission not granted, skipping.');
-            return;
+        if (timerTimeout) clearTimeout(timerTimeout);
+
+        if (delay > 0) {
+            // event.waitUntil keeps the service worker alive for the duration of the promise
+            event.waitUntil(
+                new Promise((resolve) => {
+                    timerTimeout = setTimeout(async () => {
+                        await self.registration.showNotification('Sourdough Master', {
+                            body: message,
+                            icon: 'favicon.ico',
+                            tag: 'sourdough-progress',
+                            renotify: false,
+                            vibrate: [200, 100, 200]
+                        });
+                        resolve();
+                    }, delay);
+                })
+            );
         }
-
-        event.waitUntil(
-            self.registration.showNotification('Sourdough Master', {
-                body: message || "Timer finished! Time for the next step.",
-                icon: 'favicon.ico',
-                tag: 'sourdough-progress',
-                renotify: true,
-                vibrate: [200, 100, 200]
-            })
-        );
-    }
-
-    if (type === 'CANCEL_TIMER') {
-        console.log('[SW] CANCEL_TIMER received');
     }
 });
 
 self.addEventListener('notificationclick', (event) => {
     event.notification.close();
-
+    
     event.waitUntil(
         clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+            // Check if there is already a window/tab open with the app
             for (const client of clientList) {
                 if ('focus' in client) {
                     return client.focus();
                 }
             }
+            // If no window/tab is open, open a new one
             if (clients.openWindow) {
                 return clients.openWindow(self.registration.scope);
             }
