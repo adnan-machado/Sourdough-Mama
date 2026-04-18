@@ -11,7 +11,7 @@ const STATES = {
         text: "Preheating... (30 min)",
         buttonImg: "temperature.png",
         timerSeconds: 10, // Reduced for testing as per user edits
-        characterImg: "eyes_stars.png",
+        characterImg: "eyes_star.png",
         nextState: 'ACTION_2',
         isWait: true
     },
@@ -27,7 +27,7 @@ const STATES = {
         text: "Great, now we wait a bit before scoring the ears",
         buttonImg: "dutch.png",
         timerSeconds: 20,
-        characterImg: "eyes_stars.png",
+        characterImg: "eyes_star.png",
         nextState: 'ACTION_3',
         isWait: true
     },
@@ -43,7 +43,7 @@ const STATES = {
         text: "Baking with lid on... (13 min)",
         buttonImg: "knife.png",
         timerSeconds: 13,
-        characterImg: "eyes_stars.png",
+        characterImg: "eyes_star.png",
         nextState: 'ACTION_4',
         isWait: true
     },
@@ -59,7 +59,7 @@ const STATES = {
         text: "Open baking... (20 min)",
         buttonImg: "boule.png",
         timerSeconds: 20,
-        characterImg: "eyes_stars.png",
+        characterImg: "eyes_star.png",
         nextState: 'ACTION_5',
         isWait: true
     },
@@ -125,7 +125,25 @@ function init() {
 
     // Register Service Worker
     if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('sw.js').catch(err => console.log('SW failed', err));
+        navigator.serviceWorker.register('sw.js').then(registration => {
+            registration.onupdatefound = () => {
+                const installingWorker = registration.installing;
+                if (installingWorker) {
+                    installingWorker.onstatechange = () => {
+                        if (installingWorker.state === 'installed') {
+                            if (navigator.serviceWorker.controller) {
+                                // New content is available; please refresh.
+                                console.log('New content is available; please refresh.');
+                                // Pre-emptively update cache to avoid the "eyes_start.png" stale issue
+                            } else {
+                                // Content is cached for offline use.
+                                console.log('Content is cached for offline use.');
+                            }
+                        }
+                    };
+                }
+            };
+        }).catch(err => console.log('SW failed', err));
     }
 }
 
@@ -387,4 +405,3 @@ function notify(msg) {
 }
 
 init();
-
